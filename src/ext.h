@@ -12,8 +12,4 @@ typedef struct ext_t {
 #define EXT_CODE_LEN 56
 #define EXT_CODE_BYTES (EXT_CODE_LEN >> 3)
 
-// Store 1.875 extension bits per element
-#define LONG_CODE_LEN 120
-#define LONG_CODE_BYTES (LONG_CODE_LEN >> 3)
-
 #endif //AQF_EXT_H

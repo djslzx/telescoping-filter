@@ -1,5 +1,5 @@
 /*
- *  Bit rank and select, taken from CQF (Pandey) 
+ *  Bit rank and select, taken from CQF (Pandey et al.)
  */
 #include <stdint.h>
 #include <assert.h>

@@ -5,11 +5,10 @@
 #include <string.h>
 
 #include "arcd.h"
-#include "selqf.h"
+#include "taf.h"
 #include "macros.h"
 
 #define HIGH (~0ull >> (64 - SEL_CODE_LEN))
-#define HIGH_LONG ((uint128_t)~0 >> (128 - LONG_CODE_LEN))
 
 int encode_ext(const Ext exts[64], uint64_t* code) {
   uint64_t low = 0;
@@ -98,84 +97,6 @@ void decode_ext(uint64_t code, Ext exts[64]) {
     }
   }
 }
-
-
-#ifdef __GNUC__
-int encode_ext_long(const Ext exts[64], uint128_t* code) {
-  uint128_t low = 0;
-  uint128_t high = HIGH_LONG;
-
-  for (int i=0; i<64; i++) {
-    Ext ext = exts[i];
-    uint128_t range = high - low;
-    // Multiply range by ~0.90624 (Pr[ext is empty])
-    uint128_t gap = (range >> 1) + (range >> 2) + (range >> 3) + (range >> 5);
-    if (ext.len == 0) {
-      // If extension is empty, lower top of range
-      high = low + gap;
-    } else {
-      // If extension is nonempty, raise bottom of range
-      low = low + gap;
-      // Set gap to range * ~0.04687
-      gap = (range >> 5) + (range >> 6);
-      // Account for probability of extension length:
-      // extension length k>0 has probability 2^{-k}
-      for (int j=1; j<ext.len; j++) {
-        low += gap;
-        gap >>= 1;
-      }
-      // Account for probability of a particular extension of length k:
-      // all equally likely -> 1/(2^k)
-      gap >>= ext.len; // Divide gap by 2^k
-      low += ext.bits * gap; // Take bits-th 1/(2^k)-bit piece
-      high = low + gap;
-    }
-    if (high - low < 2) {
-      return -1;
-    }
-  }
-  *code = low;
-  return 0;
-}
-
-void decode_ext_long(uint128_t code, Ext exts[64]) {
-  uint128_t low = 0;
-  uint128_t high = HIGH_LONG;
-  for (int i=0; i<64; i++) {
-    uint128_t range = high - low;
-    // Multiply range by ~0.90624 (Pr[ext is empty])
-    uint128_t gap = (range >> 1) + (range >> 2) + (range >> 3) + (range >> 5);
-    if (low + gap > code) {
-      high = low + gap;
-      exts[i].len = 0;
-      exts[i].bits = 0;
-    } else {
-      low = low + gap;
-      // Multiply range by ~0.04687
-      gap = (range >> 5) + (range >> 6);
-      // Compute k, the length of the extension, by
-      // iteratively shrinking the gap in proportion to
-      // the probability of each length k=1, 2, ...
-      int len = 1;
-      while (low + gap <= code) {
-        low += gap;
-        gap >>= 1;
-        len += 1;
-      }
-      // Get the bits given k, the length of the extension,
-      // by dividing the interval into 2^k even pieces and
-      // determining which piece the input belongs to
-      gap >>= len;
-      uint128_t bits = (code - low)/gap;
-      low += bits * gap;
-      high = low + gap;
-
-      exts[i].bits = bits;
-      exts[i].len = len;
-    }
-  }
-}
-#endif
 
 int encode_sel(const int sels[64], uint64_t *code) {
   uint64_t low = 0;
@@ -599,64 +520,6 @@ void test_encode_decode_too_many() {
   printf("passed.\n");
 }
 
-#ifdef __GNUC__
-void test_long_encode_decode_w_input(Ext exts[64]) {
-  uint128_t code;
-  Ext decoded[64];
-  int out;
-  out = encode_ext_long(exts, &code);
-  if (out < 0) {
-    panic("FAILED: Encoding failed\n");
-  } else {
-    decode_ext_long(code, decoded);
-    assert(ext_arr_eq(exts, decoded));
-  }
-}
-
-void test_long_encode_decode_w_input_expect_fail(Ext exts[64]) {
-  uint128_t code;
-  int out;
-  out = encode_ext_long(exts, &code);
-  assert_eq(out, -1);
-}
-
-void test_long_encode_decode_many() {
-  printf("Testing %s...", __FUNCTION__);
-  Ext exts[64];
-  char *strs[64] = {
-          "", "", "", "", "", "", "", "",
-          "", "", "", "", "", "", "", "",
-          "", "", "", "", "", "", "", "",
-          "", "", "", "", "", "", "", "",
-          "", "", "", "", "", "", "", "",
-          "", "", "", "", "0", "0", "0", "0",
-          "0", "0", "0", "0", "0", "0", "0", "0",
-          "0", "0", "0", "0", "0", "0", "0", "0",
-  };
-  strs_to_exts(strs, exts);
-  test_long_encode_decode_w_input(exts);
-  printf("passed.\n");
-}
-
-void test_long_encode_decode_too_many() {
-  printf("Testing %s...", __FUNCTION__);
-  Ext exts[64];
-  char *strs[64] = {
-          "", "", "", "", "", "", "", "",
-          "", "", "", "", "", "", "", "",
-          "", "", "", "", "", "", "", "",
-          "", "", "", "", "", "", "", "",
-          "", "", "", "", "", "", "", "",
-          "", "", "", "0", "0", "0", "0", "0",
-          "0", "0", "0", "0", "0", "0", "0", "0",
-          "0", "0", "0", "0", "0", "0", "0", "0",
-  };
-  strs_to_exts(strs, exts);
-  test_long_encode_decode_w_input_expect_fail(exts);
-  printf("passed.\n");
-}
-#endif
-
 int main() {
   test_strs_to_exts();
   test_encode_decode_empty();
@@ -667,10 +530,6 @@ int main() {
   test_encode_decode_long();
   test_encode_decode_capacity();
   test_encode_decode_too_many();
-#ifdef __GNUC__
-  test_long_encode_decode_many();
-  test_long_encode_decode_too_many();
-#endif
 }
 
 #endif // TEST_ARCD

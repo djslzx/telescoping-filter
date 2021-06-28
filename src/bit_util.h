@@ -1,6 +1,6 @@
-//
-// Created by djsl on 3/24/21.
-//
+/*
+ *  Bit rank and select, taken from CQF (Pandey et al.)
+ */
 
 #ifndef RANKSELECT_H
 #define RANKSELECT_H

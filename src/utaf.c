@@ -13,7 +13,7 @@
 #include "murmur3.h"
 #include "macros.h"
 #include "arcd.h"
-#include "full_selqf.h"
+#include "utaf.h"
 #include "bit_util.h"
 #include "set.h"
 
@@ -22,7 +22,7 @@
  * Returns the full 128 bit murmurhash.
  * Expects a two-slot array of uint64_t's.
  */
-static uint64_t full_selqf_hash(const FullSelQF *filter, elt_t elt) {
+static uint64_t utaf_hash(const FullTAF *filter, elt_t elt) {
   uint64_t buf[2];
   MurmurHash3_x64_128(&elt, 8, filter->seed, buf);
   return buf[0];
@@ -31,20 +31,20 @@ static uint64_t full_selqf_hash(const FullSelQF *filter, elt_t elt) {
 /**
  * Returns the quotient for a 64-bit fingerprint hash.
  */
-static size_t calc_quot(const FullSelQF* filter, uint64_t hash) {
+static size_t calc_quot(const FullTAF* filter, uint64_t hash) {
   return hash & ONES(filter->q);
 }
 
 /**
  * Returns the k-th remainder for h
  */
-static rem_t calc_rem(const FullSelQF* filter, uint64_t hash, int k) {
+static rem_t calc_rem(const FullTAF* filter, uint64_t hash, int k) {
   int n_rems = (64 - (int)filter->q)/(int)filter->r;
   if (k >= n_rems) k %= n_rems;
   return (hash >> (filter->q + k * filter->r)) & ONES(filter->r);
 }
 
-/* FullSelQF Helpers */
+/* FullTAF Helpers */
 
 /**
  * Print an array of selectors.
@@ -70,13 +70,13 @@ static void print_sels(const uint8_t sels[64]) {
  *
  * Returns -1 if result is invalid (out of bounds).
  */
-static int select_runend(const FullSelQF* filter, size_t block_index, size_t rank) {
+static int select_runend(const FullTAF* filter, size_t block_index, size_t rank) {
   assert(block_index < filter->nblocks && "block_index out of bounds");
 
   size_t step;
   size_t loc = block_index * 64;
   while (1) {
-    FullSelQFBlock* b = &filter->blocks[loc / 64];
+    FullTAFBlock* b = &filter->blocks[loc / 64];
     step = bitselect(b->runends, rank >= 64 ? 63 : (int)rank);
     loc += step;
     if (step != 64 || loc >= filter->nslots) {
@@ -102,14 +102,14 @@ static int select_runend(const FullSelQF* filter, size_t block_index, size_t ran
  * - If y > x, returns Full(y)
  * - If y runs off the edge, returns Overflow
  */
-static int rank_select(const FullSelQF* filter, size_t x) {
+static int rank_select(const FullTAF* filter, size_t x) {
   // Exit early if x obviously out of range
   if (x >= filter->nslots) {
     return RANK_SELECT_OVERFLOW;
   }
   size_t block_i = x/64;
   size_t slot_i = x%64;
-  FullSelQFBlock *b = &filter->blocks[block_i];
+  FullTAFBlock *b = &filter->blocks[block_i];
 
   // Compute i + O_i where i = x - (x mod 64)
   if (!GET(b->occupieds, 0) && b->offset == 0 && !GET(b->runends, 0)) {
@@ -162,7 +162,7 @@ static int rank_select(const FullSelQF* filter, size_t x) {
 /**
  * Finds the first unused slot at or after absolute location x.
  */
-static int first_unused(const FullSelQF* filter, size_t x) {
+static int first_unused(const FullTAF* filter, size_t x) {
   while (1) {
     int loc = rank_select(filter, x);
     switch (loc) {
@@ -181,7 +181,7 @@ static int first_unused(const FullSelQF* filter, size_t x) {
 /**
  * Shift the remainders and runends in [a, b] forward by 1 into [a+1, b+1]
  */
-static void shift_rems_and_runends(FullSelQF* filter, int a, int b) {
+static void shift_rems_and_runends(FullTAF* filter, int a, int b) {
   if (a > b) return;
   for (int i=b; i>=a; i--) {
     remainder(filter, i+1) = remainder(filter, i);
@@ -193,7 +193,7 @@ static void shift_rems_and_runends(FullSelQF* filter, int a, int b) {
 /**
  * Shift the remote elements in [a,b] forward by 1
  */
-static void shift_remote_elts(FullSelQF* filter, int a, int b) {
+static void shift_remote_elts(FullTAF* filter, int a, int b) {
   if (a > b) return;
   for (int i=b; i>=a; i--) {
     filter->remote[i+1] = filter->remote[i];
@@ -205,7 +205,7 @@ static void shift_remote_elts(FullSelQF* filter, int a, int b) {
 /**
  * Shift the hash selectors in [a,b] forward by 1
  */
-static void shift_sels(FullSelQF* filter, int a, int b) {
+static void shift_sels(FullTAF* filter, int a, int b) {
   if (a > b) return;
   for (int i=b; i>=a; i--) {
     selector(filter, i+1) = selector(filter, i);
@@ -216,7 +216,7 @@ static void shift_sels(FullSelQF* filter, int a, int b) {
 /**
  * Increment all non-negative offsets with targets in [a,b]
  */
-static void inc_offsets(FullSelQF* filter, size_t a, size_t b) {
+static void inc_offsets(FullTAF* filter, size_t a, size_t b) {
   assert(a < filter->nslots && b < filter->nslots);
   // Exit early if invalid range
   if (a > b) {
@@ -225,7 +225,7 @@ static void inc_offsets(FullSelQF* filter, size_t a, size_t b) {
   // Start i at the first block after b, clamping it so it doesn't go off the end, and work backwards
   size_t start = min(b/64 + 1, filter->nblocks - 1);
   for (int i = start; i>=0; i--) {
-    FullSelQFBlock *block = &filter->blocks[i];
+    FullTAFBlock *block = &filter->blocks[i];
     size_t block_start = i * 64;
     // Skip this block if it has a negative offset
     if (!GET(block->occupieds, 0) &&
@@ -251,13 +251,13 @@ static void inc_offsets(FullSelQF* filter, size_t a, size_t b) {
  * Concretely, this function increments unowned offsets in blocks whose
  * first slot `s` is not after `quot`: `s >= quot`.
  */
-static void inc_offsets_for_new_run(FullSelQF* filter, size_t quot, size_t loc) {
+static void inc_offsets_for_new_run(FullTAF* filter, size_t quot, size_t loc) {
   assert(loc < filter->nslots);
   // Start i at the first block after loc,
   // clamping it so it doesn't go off the end
   size_t start = min(loc/64 + 1, filter->nblocks - 1);
   for (int i=start; i>=0; i--) {
-    FullSelQFBlock *b = &filter->blocks[i];
+    FullTAFBlock *b = &filter->blocks[i];
     size_t b_start = i*64;
     // Skip this block if it has a negative offset
     if (!GET(b->occupieds, 0) && b->offset == 0 && !GET(b->runends, 0)) {
@@ -274,15 +274,15 @@ static void inc_offsets_for_new_run(FullSelQF* filter, size_t quot, size_t loc) 
   }
 }
 
-static void add_block(FullSelQF *filter) {
+static void add_block(FullTAF *filter) {
   // Add block to new_blocks
-  FullSelQFBlock *new_blocks = realloc(filter->blocks, (filter->nblocks + 1) * sizeof(FullSelQFBlock));
+  FullTAFBlock *new_blocks = realloc(filter->blocks, (filter->nblocks + 1) * sizeof(FullTAFBlock));
   if (new_blocks == NULL) {
     printf("add_block failed to realloc new blocks\n");
     exit(1);
   }
   filter->blocks = new_blocks;
-  memset(filter->blocks + filter->nblocks, 0, sizeof(FullSelQFBlock));
+  memset(filter->blocks + filter->nblocks, 0, sizeof(FullTAFBlock));
 
   // Reallocate remote rep
   Remote_elt *new_remote = realloc(filter->remote,(filter->nslots + 64) * sizeof(Remote_elt));
@@ -302,9 +302,9 @@ static void add_block(FullSelQF *filter) {
  * Adapt a fingerprint at a particular location by incrementing the selector and
  * updating the remainder.
  */
-static void adapt_loc(FullSelQF *filter, size_t loc) {
+static void adapt_loc(FullTAF *filter, size_t loc) {
   int old_sel = selector(filter, loc);
-  int new_sel = (old_sel + 1) % FULL_SELQF_MAX_SEL;
+  int new_sel = (old_sel + 1) % UTAF_MAX_SEL;
   selector(filter, loc) = new_sel;
   remainder(filter, loc) = calc_rem(filter, filter->remote[loc].hash, new_sel);
 }
@@ -314,7 +314,7 @@ static void adapt_loc(FullSelQF *filter, size_t loc) {
  *
  * Go through the rest of the run and fix any other remaining collisions.
  */
-static void adapt(FullSelQF *filter, elt_t query, int loc, size_t quot, uint64_t hash) {
+static void adapt(FullTAF *filter, elt_t query, int loc, size_t quot, uint64_t hash) {
   assert(quot <= loc && loc < filter->nslots);
   // Make sure the query elt isn't mapped to an earlier index in the sequence
   for (int i=loc; i>=(int)quot && (i == loc || !get_runend(filter, i)); i--) {
@@ -330,9 +330,9 @@ static void adapt(FullSelQF *filter, elt_t query, int loc, size_t quot, uint64_t
   }
 }
 
-/* FullSelQF */
+/* FullTAF */
 
-void full_selqf_init(FullSelQF *filter, size_t n, int seed) {
+void utaf_init(FullTAF *filter, size_t n, int seed) {
   filter->seed = seed;
   filter->nelts = 0;
   filter->nblocks = max(1, nearest_pow_of_2(n)/64);
@@ -340,25 +340,25 @@ void full_selqf_init(FullSelQF *filter, size_t n, int seed) {
   filter->q = (size_t)log2((double)filter->nslots); // nslots = 2^q
   filter->r = REM_SIZE;
   filter->p = filter->q + filter->r;
-  filter->blocks = calloc(filter->nblocks, sizeof(FullSelQFBlock));
+  filter->blocks = calloc(filter->nblocks, sizeof(FullTAFBlock));
   filter->remote = calloc(filter->nslots, sizeof(Remote_elt));
 }
 
-void full_selqf_destroy(FullSelQF* filter) {
+void utaf_destroy(FullTAF* filter) {
   free(filter->blocks);
   free(filter->remote);
   free(filter);
 }
 
-void full_selqf_clear(FullSelQF* filter) {
+void utaf_clear(FullTAF* filter) {
   filter->nelts = 0;
   free(filter->blocks);
   free(filter->remote);
-  filter->blocks = calloc(filter->nblocks, sizeof(FullSelQFBlock));
+  filter->blocks = calloc(filter->nblocks, sizeof(FullTAFBlock));
   filter->remote = calloc(filter->nslots, sizeof(Remote_elt));
 }
 
-static void raw_insert(FullSelQF* filter, elt_t elt, uint64_t hash) {
+static void raw_insert(FullTAF* filter, elt_t elt, uint64_t hash) {
   size_t quot = calc_quot(filter, hash);
   rem_t rem = calc_rem(filter, hash, 0);
   filter->nelts++;
@@ -375,7 +375,7 @@ static void raw_insert(FullSelQF* filter, elt_t elt, uint64_t hash) {
       break;
     }
     case RANK_SELECT_OVERFLOW: {
-      printf("FullSelQF failed to find runend (nslots=%lu, quot=(block=%lu, slot=%lu))\n",
+      printf("FullTAF failed to find runend (nslots=%lu, quot=(block=%lu, slot=%lu))\n",
              filter->nslots, quot/64, quot%64);
       exit(1);
     }
@@ -412,7 +412,7 @@ static void raw_insert(FullSelQF* filter, elt_t elt, uint64_t hash) {
   }
 }
 
-static int raw_lookup(FullSelQF* filter, elt_t elt, uint64_t hash) {
+static int raw_lookup(FullTAF* filter, elt_t elt, uint64_t hash) {
   size_t quot = calc_quot(filter, hash);
 
   if (get_occupied(filter, quot)) {
@@ -443,35 +443,35 @@ static int raw_lookup(FullSelQF* filter, elt_t elt, uint64_t hash) {
  * Otherwise, linear probes through the run to see if the
  * run contains rem(word).
  */
-int full_selqf_lookup(FullSelQF *filter, elt_t elt) {
-  uint64_t hash = full_selqf_hash(filter, elt);
+int utaf_lookup(FullTAF *filter, elt_t elt) {
+  uint64_t hash = utaf_hash(filter, elt);
   return raw_lookup(filter, elt, hash);
 }
 
-void full_selqf_insert(FullSelQF *filter, elt_t elt) {
-  uint64_t hash = full_selqf_hash(filter, elt);
+void utaf_insert(FullTAF *filter, elt_t elt) {
+  uint64_t hash = utaf_hash(filter, elt);
   raw_insert(filter, elt, hash);
 }
 
-double full_selqf_load(FullSelQF *filter) {
+double utaf_load(FullTAF *filter) {
   return (double)filter->nelts/(double)filter->nslots;
 }
 
 /* Printing */
 
-void print_full_selqf_metadata(FullSelQF* filter) {
+void print_utaf_metadata(FullTAF* filter) {
   printf("FILTER METADATA:\n");
   printf("  p=%ld, q=%ld, r=%ld\n",
          filter->p, filter->q, filter->r);
   printf("  nslots=%ld, nblocks=%ld, blocksize=%ld, nelts=%ld\n",
-         filter->nslots, filter->nslots/64, sizeof(FullSelQFBlock), filter->nelts);
+         filter->nslots, filter->nslots/64, sizeof(FullTAFBlock), filter->nelts);
   printf("  seed=%d\n", filter->seed);
-  printf("  load factor=%f\n", full_selqf_load(filter));
+  printf("  load factor=%f\n", utaf_load(filter));
 }
 
-void print_full_selqf_block(FullSelQF* filter, size_t block_index) {
+void print_utaf_block(FullTAF* filter, size_t block_index) {
   assert(0 <= block_index && block_index < filter->nslots/64);
-  FullSelQFBlock block = filter->blocks[block_index];
+  FullTAFBlock block = filter->blocks[block_index];
   printf("BLOCK %lu:\n", block_index);
   printf("  occupieds=0x%lx\n", block.occupieds);
   printf("  runends=0x%lx\n", block.runends);
@@ -499,14 +499,14 @@ void print_full_selqf_block(FullSelQF* filter, size_t block_index) {
   }
 }
 
-void print_full_selqf(FullSelQF* filter) {
-  print_full_selqf_metadata(filter);
+void print_utaf(FullTAF* filter) {
+  print_utaf_metadata(filter);
   for (int i=0; i<filter->nblocks; i++) {
-    print_full_selqf_block(filter, i);
+    print_utaf_block(filter, i);
   }
 }
-void print_full_selqf_stats(FullSelQF* filter) {
-  printf("FullSelQF stats:\n");
+void print_utaf_stats(FullTAF* filter) {
+  printf("FullTAF stats:\n");
   // Hash selector counts
   int max_sel = 0;
   for (int i = 0; i < filter->nslots; i++) {
@@ -530,8 +530,8 @@ void print_full_selqf_stats(FullSelQF* filter) {
 }
 
 // Tests
-//#define TEST_FULL_SELQF 1
-#ifdef TEST_FULL_SELQF
+//#define TEST_UTAF 1
+#ifdef TEST_UTAF
 
 void print_backtrace() {
   void* callstack[128];
@@ -555,17 +555,17 @@ void print_backtrace() {
     } while (0);                    \
   }
 
-#define FullSelQF_SEED 32776517
+#define FullTAF_SEED 32776517
 
-FullSelQF *new_full_selqf(size_t n) {
-  FullSelQF *filter = malloc(sizeof(FullSelQF));
-  full_selqf_init(filter, n, FullSelQF_SEED);
+FullTAF *new_utaf(size_t n) {
+  FullTAF *filter = malloc(sizeof(FullTAF));
+  utaf_init(filter, n, FullTAF_SEED);
   return filter;
 }
 
 void test_add_block() {
   printf("Testing %s...", __FUNCTION__);
-  FullSelQF *filter = new_full_selqf(64 * 2);
+  FullTAF *filter = new_utaf(64 * 2);
   assert_eq(filter->nslots, 128);
   assert_eq(filter->nblocks, 2);
   add_block(filter);
@@ -573,7 +573,7 @@ void test_add_block() {
   assert_eq(filter->nslots, 192);
   assert_eq(filter->nblocks, 3);
   // Check new block
-  FullSelQFBlock b = filter->blocks[2];
+  FullTAFBlock b = filter->blocks[2];
   assert_eq(b.occupieds, 0);
   assert_eq(b.runends, 0);
   assert_eq(b.offset, 0);
@@ -585,14 +585,14 @@ void test_add_block() {
     assert_eq(filter->remote[128 + i].elt, 0);
     assert_eq(filter->remote[128 + i].hash, 0);
   }
-  full_selqf_destroy(filter);
+  utaf_destroy(filter);
   printf("passed.\n");
 }
 
 /// Check that adding a block doesn't overwrite existing data
 void test_add_block_no_clobber() {
   printf("Testing %s...", __FUNCTION__);
-  FullSelQF *filter = new_full_selqf(128);
+  FullTAF *filter = new_utaf(128);
 
   // Setup
   for (int i=0; i<filter->nslots; i++) {
@@ -623,13 +623,13 @@ void test_add_block_no_clobber() {
   assert_eq(filter->nslots, 192);
   assert_eq(filter->nblocks, 3);
 
-  full_selqf_destroy(filter);
+  utaf_destroy(filter);
   printf("passed.\n");
 }
 
 void test_adapt_loc_1() {
   printf("Testing %s...", __FUNCTION__);
-  FullSelQF *filter = new_full_selqf(128);
+  FullTAF *filter = new_utaf(128);
   // q=7, r=8
   for (int i=0; i<filter->nslots; i++) {
     assert_eq(selector(filter, i), 0);
@@ -639,13 +639,13 @@ void test_adapt_loc_1() {
   for (int i=1; i<64; i++) {
     assert_eq(selector(filter, i), 0);
   }
-  full_selqf_destroy(filter);
+  utaf_destroy(filter);
   printf("passed.\n");
 }
 
 void test_adapt_loc_2() {
   printf("Testing %s...", __FUNCTION__);
-  FullSelQF *filter = new_full_selqf(128);
+  FullTAF *filter = new_utaf(128);
   // q=7, r=8
   for (int i=0; i<64; i++) {
     selector(filter, i) = 0;
@@ -668,13 +668,13 @@ void test_adapt_loc_2() {
                    i <= limit ? 1 : 0,
                    "i=%d", i);
   }
-  full_selqf_destroy(filter);
+  utaf_destroy(filter);
   printf("passed.\n");
 }
 
 void test_shift_remote_elts() {
   printf("Testing %s...", __FUNCTION__);
-  FullSelQF *filter = new_full_selqf(128);
+  FullTAF *filter = new_utaf(128);
   for (int i=0; i<filter->nslots; i++) {
     assert_eq(filter->remote[i].elt, 0);
     assert_eq(filter->remote[i].hash, 0);
@@ -699,7 +699,7 @@ void test_shift_remote_elts() {
     assert_eq(filter->remote[i].elt, i);
     assert_eq(filter->remote[i].hash, i);
   }
-  full_selqf_destroy(filter);
+  utaf_destroy(filter);
   printf("passed.\n");
 }
 
@@ -712,10 +712,10 @@ void test_insert_and_query() {
   double load = 0.95;
   size_t s = nearest_pow_of_2((size_t)((double)a / a_s));
   s = (size_t)((double)s * load);
-  FullSelQF* filter = new_full_selqf(s);
+  FullTAF* filter = new_utaf(s);
 
   // Generate query set
-  srandom(FullSelQF_SEED);
+  srandom(FullTAF_SEED);
   int nset = (int)(1.5*(double)s);
   Setnode* set = calloc(nset, sizeof(set[0]));
   char str[64];
@@ -723,9 +723,9 @@ void test_insert_and_query() {
     elt_t elt = random() % a;
     sprintf(str, "%lu", elt);
     set_insert(str, (int)strlen(str), 0, set, nset);
-    full_selqf_insert(filter, elt);
+    utaf_insert(filter, elt);
     assert(set_lookup(str, (int)strlen(str), set, nset));
-    assert(full_selqf_lookup(filter, elt));
+    assert(utaf_lookup(filter, elt));
   }
   // Query [0, a] and ensure that all items in the set return true
   int fps = 0;
@@ -734,10 +734,10 @@ void test_insert_and_query() {
     elt_t elt = i;
     sprintf(str, "%lu", elt);
     int in_set = set_lookup(str, (int)strlen(str), set, nset);
-    int in_full_selqf = full_selqf_lookup(filter, elt);
-    if (in_set && !in_full_selqf) {
+    int in_utaf = utaf_lookup(filter, elt);
+    if (in_set && !in_utaf) {
       fns++;
-      uint64_t hash = full_selqf_hash(filter, elt);
+      uint64_t hash = utaf_hash(filter, elt);
       size_t quot = calc_quot(filter, hash);
       if (get_occupied(filter, quot)) {
         int loc = rank_select(filter, quot);
@@ -745,7 +745,7 @@ void test_insert_and_query() {
           printf("False negative (elt=%lu, 0x%lx): quot=%lu (block=%lu, slot=%lu)"
                  " was occupied but didn't have an associated runend\n",
                  elt, elt, quot, quot/64, quot%64);
-          print_full_selqf_block(filter, quot/64);
+          print_utaf_block(filter, quot/64);
           exit(1);
         } else {
           int sel = selector(filter, loc);
@@ -754,8 +754,8 @@ void test_insert_and_query() {
           printf("False negative (elt=%lu, 0x%lx): quot=%lu (block=%lu, slot=%lu),"
                  "loc=%d (block=%d, slot=%d); stored rem=0x%hhx doesn't match query rem=0x%hhx\n",
                  elt, elt, quot, quot/64, quot%64, loc, loc/64, loc%64, stored_rem, query_rem);
-          print_full_selqf_metadata(filter);
-          print_full_selqf_block(filter, loc/64);
+          print_utaf_metadata(filter);
+          print_utaf_block(filter, loc/64);
           exit(1);
         }
       } else {
@@ -763,16 +763,16 @@ void test_insert_and_query() {
                elt, elt, quot, quot/64, quot%64);
         exit(1);
       }
-    } else if (!in_set && in_full_selqf) {
-      fps += in_full_selqf;
+    } else if (!in_set && in_utaf) {
+      fps += in_utaf;
     }
   }
   printf("passed. ");
   printf("FPs: %d (%f%%), FNs: %d (%f%%)\n",
          fps, (double)fps/(double)a * 100, fns, (double)fns/(double)a * 100);
-  print_full_selqf_metadata(filter);
-  print_full_selqf_stats(filter);
-  full_selqf_destroy(filter);
+  print_utaf_metadata(filter);
+  print_utaf_stats(filter);
+  utaf_destroy(filter);
 }
 
 void test_insert_and_query_w_repeats() {
@@ -792,11 +792,11 @@ void test_insert_and_query_w_repeats() {
   int fns = 0;  // false negatives
   int tot_queries = n_queries * queries_per_elt;
 
-  FullSelQF *filter = new_full_selqf(s);
+  FullTAF *filter = new_utaf(s);
   int nset = (int)(s * 1.5);
   Setnode *set = calloc(nset, sizeof(set[0]));
 
-  srandom(FullSelQF_SEED);
+  srandom(FullTAF_SEED);
   char str[64];
   int len;
   fprintf(stderr, "Initializing membership set and filter...\n");
@@ -805,7 +805,7 @@ void test_insert_and_query_w_repeats() {
     sprintf(str, "%lu", elt);
     len = (int)strlen(str);
     set_insert(str, len, 0, set, nset);
-    full_selqf_insert(filter, elt);
+    utaf_insert(filter, elt);
   }
   fprintf(stderr, "Initializing query set...\n");
   elt_t *query_set = calloc(a, sizeof(elt_t));
@@ -819,7 +819,7 @@ void test_insert_and_query_w_repeats() {
     elt_t elt = query_set[random() % a];
     sprintf(str, "%lu", elt);
     len = (int)strlen(str);
-    int in_filter = full_selqf_lookup(filter, elt);
+    int in_filter = utaf_lookup(filter, elt);
     int in_set = set_lookup(str, len, set, nset);
     if (in_filter && !in_set) {
       fps++;
@@ -830,7 +830,7 @@ void test_insert_and_query_w_repeats() {
       }
     } else if (!in_filter && in_set) {
       fns++;
-      uint64_t hash = full_selqf_hash(filter, elt);
+      uint64_t hash = utaf_hash(filter, elt);
       size_t quot = calc_quot(filter, hash);
       if (get_occupied(filter, quot)) {
         int loc = rank_select(filter, quot);
@@ -838,7 +838,7 @@ void test_insert_and_query_w_repeats() {
           printf("False negative (elt=%lu, 0x%lx): quot=%lu (block=%lu, slot=%lu)"
                  " was occupied but didn't have an associated runend\n",
                  elt, elt, quot, quot/64, quot%64);
-          print_full_selqf_block(filter, quot/64);
+          print_utaf_block(filter, quot/64);
           exit(1);
         } else {
           int sel = selector(filter, loc);
@@ -847,8 +847,8 @@ void test_insert_and_query_w_repeats() {
           printf("False negative (elt=%lu, 0x%lx): quot=%lu (block=%lu, slot=%lu),"
                  "loc=%d (block=%d, slot=%d); stored rem=0x%hhx doesn't match query rem=0x%hhx\n",
                  elt, elt, quot, quot/64, quot%64, loc, loc/64, loc%64, stored_rem, query_rem);
-          print_full_selqf_metadata(filter);
-          print_full_selqf_block(filter, loc/64);
+          print_utaf_metadata(filter);
+          print_utaf_block(filter, loc/64);
           exit(1);
         }
       } else {
@@ -862,8 +862,8 @@ void test_insert_and_query_w_repeats() {
   printf("FPs: %d (%f%%), RFPs: %d (%f%%)\n",
          fps, (double)fps/tot_queries, rfps, (double)rfps/tot_queries * 100);
   printf("FNs: %d (%f%%)\n", fns, (double)fns/tot_queries * 100);
-  print_full_selqf_stats(filter);
-  full_selqf_destroy(filter);
+  print_utaf_stats(filter);
+  utaf_destroy(filter);
   printf("Done testing %s.\n", __FUNCTION__);
 }
 
@@ -884,11 +884,11 @@ void test_mixed_insert_and_query_w_repeats() {
   int fns = 0;  // false negatives
   int tot_queries = n_queries * queries_per_elt;
 
-  FullSelQF *filter = new_full_selqf(s);
+  FullTAF *filter = new_utaf(s);
   int nset = (int)(s * 1.5);
   Setnode *set = calloc(nset, sizeof(set[0]));
 
-  srandom(FullSelQF_SEED);
+  srandom(FullTAF_SEED);
   char str[64];
   int len;
   fprintf(stderr, "Initializing query set...\n");
@@ -902,12 +902,12 @@ void test_mixed_insert_and_query_w_repeats() {
     sprintf(str, "%lu", elt);
     len = (int)strlen(str);
     set_insert(str, len, 0, set, nset);
-    full_selqf_insert(filter, elt);
+    utaf_insert(filter, elt);
   }
   fprintf(stderr, "Performing interleaved queries...\n");
   for (int i=0; i<n_queries; i++) {
     elt_t elt = query_set[random() % a];
-    full_selqf_lookup(filter, elt);
+    utaf_lookup(filter, elt);
   }
   fprintf(stderr, "Finishing initialization of membership set and filter...\n");
   for (int i=s/2; i<s; i++) {
@@ -915,7 +915,7 @@ void test_mixed_insert_and_query_w_repeats() {
     sprintf(str, "%lu", elt);
     len = (int)strlen(str);
     set_insert(str, len, 0, set, nset);
-    full_selqf_insert(filter, elt);
+    utaf_insert(filter, elt);
   }
   fprintf(stderr, "Querying set and filter...\n");
   int nseen = (int)(s * 1.5);
@@ -924,7 +924,7 @@ void test_mixed_insert_and_query_w_repeats() {
     elt_t elt = query_set[random() % a];
     sprintf(str, "%lu", elt);
     len = (int)strlen(str);
-    int in_filter = full_selqf_lookup(filter, elt);
+    int in_filter = utaf_lookup(filter, elt);
     int in_set = set_lookup(str, len, set, nset);
     if (in_filter && !in_set) {
       fps++;
@@ -935,7 +935,7 @@ void test_mixed_insert_and_query_w_repeats() {
       }
     } else if (!in_filter && in_set) {
       fns++;
-      uint64_t hash = full_selqf_hash(filter, elt);
+      uint64_t hash = utaf_hash(filter, elt);
       size_t quot = calc_quot(filter, hash);
       if (get_occupied(filter, quot)) {
         int loc = rank_select(filter, quot);
@@ -943,7 +943,7 @@ void test_mixed_insert_and_query_w_repeats() {
           printf("False negative (elt=%lu, 0x%lx): quot=%lu (block=%lu, slot=%lu)"
                  " was occupied but didn't have an associated runend\n",
                  elt, elt, quot, quot/64, quot%64);
-          print_full_selqf_block(filter, quot/64);
+          print_utaf_block(filter, quot/64);
           exit(1);
         } else {
           int sel = selector(filter, loc);
@@ -952,8 +952,8 @@ void test_mixed_insert_and_query_w_repeats() {
           printf("False negative (elt=%lu, 0x%lx): quot=%lu (block=%lu, slot=%lu),"
                  "loc=%d (block=%d, slot=%d); stored rem=0x%hhx doesn't match query rem=0x%hhx\n",
                  elt, elt, quot, quot/64, quot%64, loc, loc/64, loc%64, stored_rem, query_rem);
-          print_full_selqf_metadata(filter);
-          print_full_selqf_block(filter, loc/64);
+          print_utaf_metadata(filter);
+          print_utaf_block(filter, loc/64);
           exit(1);
         }
       } else {
@@ -967,8 +967,8 @@ void test_mixed_insert_and_query_w_repeats() {
   printf("FPs: %d (%f%%), RFPs: %d (%f%%)\n",
          fps, (double)fps/tot_queries, rfps, (double)rfps/tot_queries * 100);
   printf("FNs: %d (%f%%)\n", fns, (double)fns/tot_queries * 100);
-  print_full_selqf_stats(filter);
-  full_selqf_destroy(filter);
+  print_utaf_stats(filter);
+  utaf_destroy(filter);
   printf("Done testing %s.\n", __FUNCTION__);
 }
 
@@ -977,7 +977,7 @@ void test_shift_sels_single_block() {
   printf("Testing %s...", __FUNCTION__);
 
   // Setup
-  FullSelQF *filter = new_full_selqf(64 * 3);
+  FullTAF *filter = new_utaf(64 * 3);
   for (int i=0; i<64; i++) {
     selector(filter, i) = i % 8 == 0;
   }
@@ -991,12 +991,12 @@ void test_shift_sels_single_block() {
                      "j=%d, i=%d", j, i);
     }
   }
-  full_selqf_destroy(filter);
+  utaf_destroy(filter);
   printf("passed.\n");
 }
 
-FullSelQF* sel_setup() {
-  FullSelQF* filter = new_full_selqf(64 * 4);
+FullTAF* sel_setup() {
+  FullTAF* filter = new_utaf(64 * 4);
   for (int i=0; i<filter->nslots; i++) {
     selector(filter, i) = i % 8 == 0;
   }
@@ -1006,7 +1006,7 @@ FullSelQF* sel_setup() {
 // a, b+1 in different blocks
 void test_shift_sels_multi_block() {
   printf("Testing %s...", __FUNCTION__);
-  FullSelQF *filter = sel_setup();
+  FullTAF *filter = sel_setup();
   // (1) Shift sels in [0, 127] -> [1,128]
   shift_sels(filter, 0, 127);
   for (int i=0; i<filter->nblocks; i++) {
@@ -1016,7 +1016,7 @@ void test_shift_sels_multi_block() {
                      "i=%d, j=%d", i, j);
     }
   }
-  full_selqf_destroy(filter);
+  utaf_destroy(filter);
   filter = sel_setup();
   // (2) Shift sels in [32, 64+32] -> [33, 64+33]
   shift_sels(filter, 32, 64+32);
@@ -1027,7 +1027,7 @@ void test_shift_sels_multi_block() {
                     (i <= 64 + 33) ? (i-1)%8 == 0 : i%8 == 0),
                    "i=%d", i);
   }
-  full_selqf_destroy(filter);
+  utaf_destroy(filter);
   printf("passed.\n");
 }
 
@@ -1043,4 +1043,4 @@ int main() {
   test_insert_and_query_w_repeats();
   test_mixed_insert_and_query_w_repeats();
 }
-#endif // TEST_FULL_SELQF
+#endif // TEST_UTAF

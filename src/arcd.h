@@ -22,20 +22,6 @@ int encode_ext(const Ext exts[64], uint64_t *code);
  */
 void decode_ext(uint64_t code, Ext exts[64]);
 
-#ifdef __GNUC__
-typedef __uint128_t uint128_t;
-
-/**
- * Encodes the input extensions, returning the 128-bit code by reference.
- */
-int encode_ext_long(const Ext exts[64], uint128_t* code);
-
-/**
- * Decodes the 128-bit extension code, returning an array of Exts by reference.
- */
-void decode_ext_long(uint128_t code, Ext exts[64]);
-#endif
-
 /**
  * Encodes the input selectors, passing code out by ref.
  * @return 0 if encoding succeeds, -1 otherwise.
