@@ -49,7 +49,7 @@ We also provide three additional filter implementations.
 - `rsqf_clear(filter)`
 
 ## Build and test
-To build the TAF:
+To build the TAF from `src/`:
 ```
 make taf
 ```
