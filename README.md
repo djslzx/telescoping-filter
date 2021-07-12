@@ -6,7 +6,7 @@ The Telescoping Adaptive Filter (TAF) is a practical, provably adaptive filter. 
 
 For theoretical analysis, performance benchmarks, and architectural details, please see our paper:
 
-"Telescoping Filter: A Practical Adaptive Filter", European Symposium on Algorithms (ESA) 2021 by David J. Lee, Samuel McCauley, Shikha Singh, and Max Stein.
+["Telescoping Filter: A Practical Adaptive Filter"](https://arxiv.org/abs/2107.02866), European Symposium on Algorithms (ESA) 2021 by David J. Lee, Samuel McCauley, Shikha Singh, and Max Stein.
 
 ## API
 The TAF supports the following operations:
