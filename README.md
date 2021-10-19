@@ -1,6 +1,28 @@
 # Telescoping Adaptive Filter (TAF)
 David J. Lee, Samuel McCauley, Shikha Singh, Max Stein
 
+This work appeared at ESA 2021.  If you use this software, please cite us:
+```
+@InProceedings{lee_et_al:LIPIcs.ESA.2021.60,
+  author =	{Lee, David J. and McCauley, Samuel and Singh, Shikha and Stein, Max},
+  title =	{{Telescoping Filter: A Practical Adaptive Filter}},
+  booktitle =	{29th Annual European Symposium on Algorithms (ESA 2021)},
+  pages =	{60:1--60:18},
+  series =	{Leibniz International Proceedings in Informatics (LIPIcs)},
+  ISBN =	{978-3-95977-204-4},
+  ISSN =	{1868-8969},
+  year =	{2021},
+  volume =	{204},
+  editor =	{Mutzel, Petra and Pagh, Rasmus and Herman, Grzegorz},
+  publisher =	{Schloss Dagstuhl -- Leibniz-Zentrum f{\"u}r Informatik},
+  address =	{Dagstuhl, Germany},
+  URL =		{https://drops.dagstuhl.de/opus/volltexte/2021/14641},
+  URN =		{urn:nbn:de:0030-drops-146410},
+  doi =		{10.4230/LIPIcs.ESA.2021.60},
+  annote =	{Keywords: Filters, approximate-membership query data structures (AMQs), Bloom filters, quotient filters, cuckoo filters, adaptivity, succinct data structures}
+}
+```
+
 ## Overview
 The Telescoping Adaptive Filter (TAF) is a practical, provably adaptive filter.  The TAF supports insertions and queries at high throughputs.  In addition, it sustains its false positive guarantees over sequences of insertions by fixing false positives as they occur.
 
