@@ -70,6 +70,5 @@ arcd: arcd.c
 test.out: $(OBJ)	
 	$(LD) -relocatable -o $@ $^
 
-#a possibly-sloppy way to undo making: remove all object files
 clean: 	
 	rm $(OBJ) $(ALGO)
