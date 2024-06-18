@@ -515,7 +515,7 @@ void print_utaf_stats(FullTAF* filter) {
       max_sel = sel;
     }
   }
-  int sel_counts[max_sel];
+  int sel_counts[max_sel+1];
   for (int i = 0; i < max_sel; i++) {
     sel_counts[i] = 0;
   }

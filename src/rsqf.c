@@ -308,7 +308,7 @@ static int raw_lookup(const RSQF* filter, size_t quot, rem_t rem) {
         return 1;
       }
       loc--;
-    } while (loc >= quot && !get_runend(filter, loc));
+    } while (loc >= (int)quot && !get_runend(filter, loc));
   }
   return 0;
 }
