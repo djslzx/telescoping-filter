@@ -3,7 +3,9 @@ CC=gcc
 LD=ld
 #CC = clang	
 
-CFLAGS += -lm -fsanitize=undefined
+CFLAGS += -lm
+CFLAGS += -fsanitize=undefined
+#CFLAGS += -fsanitize=undefined-abort
 
 #put any desired compilation flags here.  Feel free to remove O2 or change to O3 or Ofast	
 #make sure to run "make clean" if this is changed	
