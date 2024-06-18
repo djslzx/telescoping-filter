@@ -23,9 +23,10 @@ endif
 
 DEPS = arcd.h constants.h macros.h murmur3.h bit_util.h remainder.h rsqf.h set.h
 OBJ = arcd.o exaf.o murmur3.o bit_util.o rsqf.o set.o
+ALGO = rsqf exaf utaf taf arcd
 
 #only need test.out to build 'all' of project
-all: test.out	
+all: test.out $(ALGO)
 
 #adds flags (set above) for make debug
 #make sure to run "make clean" if no changes to source files	
@@ -62,7 +63,7 @@ arcd: arcd.c
 
 #this rule links the object files together and stores the output in test.out	
 test.out: $(OBJ)	
-	$(CC) -o $@ $^ $(CFLAGS)	
+	#$(CC) -c -o $@ $^ $(CFLAGS)	
 
 #a possibly-sloppy way to undo making: remove all object files
 clean: 	
