@@ -13,10 +13,10 @@ RELFLAGS=$(CFLAGS) -O3
 
 #flags to use when running make debug	
 #replaces RELFLAGS	
-DEBUGFLAGS=$(CFLAGS) -g -O0 -lm -rdynamic -Wall
+DEBUGFLAGS=$(CFLAGS) -g -O0 -rdynamic -Wall
 
 #flags to use when running gprof
-PROFFLAGS=$(CFLAGS) -pg -O0 -lm
+PROFFLAGS=$(CFLAGS) -pg -O0
 
 #operating system (for Max)
 OS := $(shell uname)
@@ -71,4 +71,4 @@ test.out: $(OBJ)
 	$(LD) -relocatable -o $@ $^
 
 clean: 	
-	rm $(OBJ) $(ALGO)
+	rm test.out $(OBJ) $(ALGO)

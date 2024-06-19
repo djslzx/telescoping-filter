@@ -1250,6 +1250,112 @@ void test_insert_and_query() {
   set_deallocate(set, nset);
 }
 
+void test_mixed_insert_and_query_w_repeats() {
+  printf("Testing %s...\n", __FUNCTION__);
+  int nslots = 1 << 14;
+  double load = 0.95;
+  double a_s = 100;
+  int queries_per_elt = 10;
+  printf("nslots=%d, load=%f, a/s=%f, queries_per_elt = %d\n", nslots, load, a_s, queries_per_elt);
+
+  int s = (int)((double)nearest_pow_of_2(nslots) * load);
+  int a = (int)((double)s * a_s);
+  int n_queries = a * queries_per_elt;
+
+  int fps = 0;  // false positives
+  int rfps = 0; // repeated false positives
+  int fns = 0;  // false negatives
+  int tot_queries = n_queries * queries_per_elt;
+
+  RSQF* filter = new_rsqf(s);
+
+  int nset = (int)(s * 1.5);
+  Setnode *set = calloc(nset, sizeof(set[0]));
+
+  srandom(RSQF_SEED);
+  char str[64];
+  int len;
+  fprintf(stderr, "Initializing query set...\n");
+  elt_t *query_set = calloc(a, sizeof(elt_t));
+  for (int i=0; i<a; i++) {
+    query_set[i] = random();
+  }
+  fprintf(stderr, "Initializing membership set and filter...\n");
+  for (int i=0; i<s/2; i++) {
+    elt_t elt = random();
+    sprintf(str, "%lu", elt);
+    len = (int)strlen(str);
+    set_insert(str, len, 0, set, nset);
+    rsqf_insert(filter, elt);
+  }
+  fprintf(stderr, "Performing interleaved queries...\n");
+  for (int i=0; i<n_queries; i++) {
+    elt_t elt = query_set[random() % a];
+    rsqf_lookup(filter, elt);
+  }
+  fprintf(stderr, "Finishing initialization of membership set and filter...\n");
+  for (int i=s/2; i<s; i++) {
+    elt_t elt = random();
+    sprintf(str, "%lu", elt);
+    len = (int)strlen(str);
+    set_insert(str, len, 0, set, nset);
+    rsqf_insert(filter, elt);
+  }
+  fprintf(stderr, "Querying set and filter...\n");
+  int nseen = (int)(s * 1.5);
+  Setnode *seen = calloc(nseen, sizeof(seen[0]));
+  for (int i=0; i<n_queries; i++) {
+    elt_t elt = query_set[random() % a];
+    sprintf(str, "%lu", elt);
+    len = (int)strlen(str);
+    int in_filter = rsqf_lookup(filter, elt);
+    int in_set = set_lookup(str, len, set, nset);
+    if (in_filter && !in_set) {
+      fps++;
+      if (set_lookup(str, len, seen, nseen)) {
+        rfps++;
+      } else {
+        set_insert(str, len, 0, seen, nseen);
+      }
+    } else if (!in_filter && in_set) {
+      fns++;
+      uint64_t hash = rsqf_hash(filter, elt);
+      size_t quot = calc_quot(filter, hash);
+      if (get_occupied(filter, quot)) {
+        int loc = rank_select(filter, quot);
+        if (loc == RANK_SELECT_EMPTY || loc == RANK_SELECT_OVERFLOW) {
+          printf("False negative (elt=%lu, 0x%lx): quot=%lu (block=%lu, slot=%lu)"
+                 " was occupied but didn't have an associated runend\n",
+                 elt, elt, quot, quot/64, quot%64);
+          print_rsqf_block(filter, quot/64);
+          exit(1);
+        } else {
+          // N/A: int sel = selector(filter, loc);
+          // N/A: rem_t query_rem = calc_rem(filter, hash, sel);
+          rem_t stored_rem = remainder(filter, loc);
+          printf("False negative (elt=%lu, 0x%lx): quot=%lu (block=%lu, slot=%lu),"
+                 "loc=%d (block=%d, slot=%d); stored rem=0x%hhx doesn't match query rem=idk\n",
+                 elt, elt, quot, quot/64, quot%64, loc, loc/64, loc%64, stored_rem);
+          print_rsqf_metadata(filter);
+          print_rsqf_block(filter, loc/64);
+          exit(1);
+        }
+      } else {
+        printf("False negative (elt=%lu, 0x%lx): quot=%lu (block=%lu, slot=%lu) wasn't occupied\n",
+               elt, elt, quot, quot/64, quot%64);
+        exit(1);
+      }
+    }
+  }
+  printf("Test results:\n");
+  printf("FPs: %d (%f%%), RFPs: %d (%f%%)\n",
+         fps, (double)fps/tot_queries, rfps, (double)rfps/tot_queries * 100);
+  printf("FNs: %d (%f%%)\n", fns, (double)fns/tot_queries * 100);
+  // N/A: print_rsqf_stats(filter);
+  rsqf_destroy(filter);
+  printf("Done testing %s.\n", __FUNCTION__);
+}
+
 void test_template() {
   printf("Testing %s...", __FUNCTION__);
   RSQF *filter = new_rsqf(64 * 3);
@@ -1293,5 +1399,6 @@ int main() {
   test_raw_insert_zero_offset();
   test_insert_repeated();
   test_insert_and_query();
+  test_mixed_insert_and_query_w_repeats();
 }
 #endif // TEST_RSQFv
