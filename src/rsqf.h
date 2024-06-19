@@ -9,6 +9,8 @@ extern "C" {
 #include "constants.h"
 #include "remainder.h"
 
+typedef uint64_t elt_t;
+
 typedef struct rsqf_block_t {
   rem_t remainders[64];
   uint64_t occupieds;
@@ -29,8 +31,8 @@ typedef struct rsqf_t {
 
 void rsqf_init(RSQF *filter, size_t n, int seed);
 void rsqf_destroy(RSQF* filter);
-int rsqf_lookup(const RSQF *filter, uint64_t elt);
-void rsqf_insert(RSQF *filter, uint64_t elt);
+int rsqf_lookup(const RSQF *filter, elt_t elt);
+void rsqf_insert(RSQF *filter, elt_t elt);
 void rsqf_clear(RSQF* filter);
 
 // Printing
